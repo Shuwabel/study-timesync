@@ -31,6 +31,15 @@ export default function TimetableView() {
     return map;
   }, [timetable]);
 
+  if (!timetable) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-background gap-4">
+        <p className="text-lg text-muted-foreground">Timetable not found.</p>
+        <Link to="/generate"><Button>Create One</Button></Link>
+      </div>
+    );
+  }
+
   const exportPDF = () => {
     const doc = new jsPDF();
     doc.setFontSize(18);
