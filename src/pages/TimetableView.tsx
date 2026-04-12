@@ -16,22 +16,13 @@ export default function TimetableView() {
   const [view, setView] = useState<'calendar' | 'list'>('calendar');
   const [weekOffset, setWeekOffset] = useState(0);
 
-  if (!timetable) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-background gap-4">
-        <p className="text-lg text-muted-foreground">Timetable not found.</p>
-        <Link to="/generate"><Button>Create One</Button></Link>
-      </div>
-    );
-  }
-
-  const allDates = timetable.sessions.map((s) => parseISO(s.date));
+  const allDates = timetable?.sessions.map((s) => parseISO(s.date)) || [];
   const minDate = allDates.length ? new Date(Math.min(...allDates.map((d) => d.getTime()))) : new Date();
   const currentWeekStart = addDays(startOfWeek(minDate, { weekStartsOn: 1 }), weekOffset * 7);
-
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(currentWeekStart, i));
 
   const sessionsByDate = useMemo(() => {
+    if (!timetable) return {};
     const map: Record<string, StudySession[]> = {};
     timetable.sessions.forEach((s) => {
       if (!map[s.date]) map[s.date] = [];
