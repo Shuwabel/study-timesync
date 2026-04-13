@@ -19,6 +19,22 @@ export default function StepReview({ onGenerate, generating }: Props) {
       <p className="text-muted-foreground mb-6">Double-check everything before we generate your timetable.</p>
 
       <div className="space-y-4">
+        {/* Timetable info */}
+        {(store.timetableName || store.timetableDescription) && (
+          <Card>
+            <CardHeader className="pb-3 flex flex-row items-center justify-between">
+              <CardTitle className="text-base">Timetable</CardTitle>
+              <Button variant="ghost" size="sm" onClick={() => store.setStep(1)} className="gap-1 text-xs">
+                <Edit2 className="h-3 w-3" /> Edit
+              </Button>
+            </CardHeader>
+            <CardContent className="text-sm space-y-1">
+              {store.timetableName && <p className="font-medium">{store.timetableName}</p>}
+              {store.timetableDescription && <p className="text-muted-foreground">{store.timetableDescription}</p>}
+            </CardContent>
+          </Card>
+        )}
+
         <Card>
           <CardHeader className="pb-3 flex flex-row items-center justify-between">
             <CardTitle className="text-base">Courses ({store.courses.length})</CardTitle>
@@ -27,7 +43,7 @@ export default function StepReview({ onGenerate, generating }: Props) {
             </Button>
           </CardHeader>
           <CardContent className="space-y-2">
-            {store.courses.map((c, i) => (
+            {store.courses.map((c) => (
               <div key={c.id} className="flex items-center gap-2 text-sm">
                 <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: COURSE_COLORS[c.colorIndex].hex }} />
                 <span className="font-medium">{c.name}</span>
@@ -35,8 +51,6 @@ export default function StepReview({ onGenerate, generating }: Props) {
                   {c.noExam ? 'No exam' : c.examDate ? format(new Date(c.examDate), 'MMM d') : 'No date'}
                   {' · '}
                   {DIFFICULTY_LABELS[c.difficulty - 1]}
-                  {' · '}
-                  Priority #{i + 1}
                 </span>
               </div>
             ))}
@@ -46,7 +60,7 @@ export default function StepReview({ onGenerate, generating }: Props) {
         <Card>
           <CardHeader className="pb-3 flex flex-row items-center justify-between">
             <CardTitle className="text-base">Availability</CardTitle>
-            <Button variant="ghost" size="sm" onClick={() => store.setStep(5)} className="gap-1 text-xs">
+            <Button variant="ghost" size="sm" onClick={() => store.setStep(4)} className="gap-1 text-xs">
               <Edit2 className="h-3 w-3" /> Edit
             </Button>
           </CardHeader>

@@ -1,20 +1,23 @@
 import { useParams, Link } from 'react-router-dom';
 import { useState, useMemo } from 'react';
-import { getTimetableById } from '@/lib/storage';
-import { COURSE_COLORS, DAYS_OF_WEEK } from '@/lib/constants';
-import { StudySession } from '@/lib/types';
+import { getTimetableById, updateTimetable } from '@/lib/storage';
+import { COURSE_COLORS } from '@/lib/constants';
+import { StudySession, Timetable } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { addDays, format, startOfWeek, parseISO, isSameDay } from 'date-fns';
-import { GraduationCap, Download, CalendarIcon, List, LayoutGrid, ChevronLeft, ChevronRight, Share2 } from 'lucide-react';
+import { Download, CalendarIcon, List, LayoutGrid, ChevronLeft, ChevronRight, Share2, Pencil, X, Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import jsPDF from 'jspdf';
+import Logo from '@/components/Logo';
 
 export default function TimetableView() {
   const { id } = useParams<{ id: string }>();
-  const timetable = getTimetableById(id || '');
+  const [timetable, setTimetable] = useState<Timetable | undefined>(() => getTimetableById(id || ''));
   const [view, setView] = useState<'calendar' | 'list'>('calendar');
   const [weekOffset, setWeekOffset] = useState(0);
+  const [editMode, setEditMode] = useState(false);
 
   const allDates = timetable?.sessions.map((s) => parseISO(s.date)) || [];
   const minDate = allDates.length ? new Date(Math.min(...allDates.map((d) => d.getTime()))) : new Date();
@@ -39,6 +42,33 @@ export default function TimetableView() {
       </div>
     );
   }
+
+  const saveChanges = (updated: Timetable) => {
+    setTimetable(updated);
+    updateTimetable(updated);
+  };
+
+  const deleteSession = (sessionId: string) => {
+    const updated = { ...timetable, sessions: timetable.sessions.filter((s) => s.id !== sessionId) };
+    saveChanges(updated);
+    toast.success('Session removed');
+  };
+
+  const updateSessionType = (sessionId: string, newType: 'Focus' | 'Review' | 'Practice') => {
+    const updated = {
+      ...timetable,
+      sessions: timetable.sessions.map((s) => s.id === sessionId ? { ...s, sessionType: newType } : s),
+    };
+    saveChanges(updated);
+  };
+
+  const updateSessionDuration = (sessionId: string, newDuration: number) => {
+    const updated = {
+      ...timetable,
+      sessions: timetable.sessions.map((s) => s.id === sessionId ? { ...s, duration: newDuration } : s),
+    };
+    saveChanges(updated);
+  };
 
   const exportPDF = () => {
     const doc = new jsPDF();
@@ -93,12 +123,52 @@ export default function TimetableView() {
     toast.success('Link copied to clipboard!');
   };
 
+  const SessionCard = ({ s, compact }: { s: StudySession; compact?: boolean }) => (
+    <div
+      className={`text-xs p-1.5 rounded relative group ${editMode ? 'ring-1 ring-primary/20' : ''}`}
+      style={{ backgroundColor: COURSE_COLORS[s.colorIndex].hex + '20', borderLeft: `3px solid ${COURSE_COLORS[s.colorIndex].hex}` }}
+      title={s.tip}
+    >
+      {editMode && (
+        <button
+          onClick={() => deleteSession(s.id)}
+          className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      )}
+      <p className="font-medium truncate">{s.courseName}</p>
+      {editMode ? (
+        <div className="flex items-center gap-1 mt-1">
+          <Select value={String(s.duration)} onValueChange={(v) => updateSessionDuration(s.id, parseFloat(v))}>
+            <SelectTrigger className="h-5 text-[10px] w-14 px-1"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3].map((d) => (
+                <SelectItem key={d} value={String(d)} className="text-xs">{d}h</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={s.sessionType} onValueChange={(v) => updateSessionType(s.id, v as any)}>
+            <SelectTrigger className="h-5 text-[10px] w-16 px-1"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {['Focus', 'Review', 'Practice'].map((t) => (
+                <SelectItem key={t} value={t} className="text-xs">{t}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      ) : (
+        <p className="text-muted-foreground">{s.startTime} · {s.duration}h · {s.sessionType}</p>
+      )}
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-background">
       <nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md bg-background/80 border-b border-border">
         <div className="container mx-auto flex items-center justify-between h-16 px-4">
           <Link to="/" className="flex items-center gap-2 font-bold text-xl">
-            <GraduationCap className="h-6 w-6 text-primary" />
+            <Logo className="h-7 w-7" />
             <span>StudySync</span>
           </Link>
           <Link to="/dashboard"><Button variant="ghost" size="sm">Dashboard</Button></Link>
@@ -106,15 +176,24 @@ export default function TimetableView() {
       </nav>
 
       <div className="container mx-auto px-4 pt-24 pb-12">
-        {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
             <h1 className="text-2xl font-bold">{timetable.title}</h1>
+            {timetable.description && <p className="text-sm text-muted-foreground">{timetable.description}</p>}
             <p className="text-sm text-muted-foreground">
               {timetable.courses.length} courses · {timetable.sessions.length} sessions · Created {format(new Date(timetable.createdAt), 'PPP')}
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant={editMode ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setEditMode(!editMode)}
+              className="gap-1"
+            >
+              {editMode ? <Check className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
+              {editMode ? 'Done' : 'Edit'}
+            </Button>
             <Button variant="outline" size="sm" onClick={() => setView(view === 'calendar' ? 'list' : 'calendar')} className="gap-1">
               {view === 'calendar' ? <List className="h-4 w-4" /> : <LayoutGrid className="h-4 w-4" />}
               {view === 'calendar' ? 'List' : 'Calendar'}
@@ -159,17 +238,7 @@ export default function TimetableView() {
                       {format(day, 'EEE d')}
                     </p>
                     <div className="space-y-1">
-                      {sessions.map((s) => (
-                        <div
-                          key={s.id}
-                          className="text-xs p-1.5 rounded"
-                          style={{ backgroundColor: COURSE_COLORS[s.colorIndex].hex + '20', borderLeft: `3px solid ${COURSE_COLORS[s.colorIndex].hex}` }}
-                          title={s.tip}
-                        >
-                          <p className="font-medium truncate">{s.courseName}</p>
-                          <p className="text-muted-foreground">{s.startTime} · {s.duration}h · {s.sessionType}</p>
-                        </div>
-                      ))}
+                      {sessions.map((s) => <SessionCard key={s.id} s={s} compact />)}
                     </div>
                   </div>
                 );
@@ -186,13 +255,39 @@ export default function TimetableView() {
                 <h3 className="font-semibold text-sm mb-2">{format(parseISO(date), 'EEEE, MMMM d')}</h3>
                 <div className="space-y-2">
                   {sessionsByDate[date].map((s) => (
-                    <Card key={s.id}>
+                    <Card key={s.id} className={`relative group ${editMode ? 'ring-1 ring-primary/20' : ''}`}>
                       <CardContent className="flex items-start gap-3 py-3 px-4">
                         <div className="w-1 h-full min-h-[40px] rounded-full self-stretch" style={{ backgroundColor: COURSE_COLORS[s.colorIndex].hex }} />
                         <div className="flex-1 min-w-0">
                           <p className="font-medium text-sm">{s.courseName}</p>
-                          <p className="text-xs text-muted-foreground">{s.startTime} · {s.duration}h · {s.sessionType}</p>
-                          <p className="text-xs text-muted-foreground mt-1 italic">💡 {s.tip}</p>
+                          {editMode ? (
+                            <div className="flex items-center gap-2 mt-1">
+                              <Select value={String(s.duration)} onValueChange={(v) => updateSessionDuration(s.id, parseFloat(v))}>
+                                <SelectTrigger className="h-7 text-xs w-20"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3].map((d) => (
+                                    <SelectItem key={d} value={String(d)} className="text-xs">{d}h</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <Select value={s.sessionType} onValueChange={(v) => updateSessionType(s.id, v as any)}>
+                                <SelectTrigger className="h-7 text-xs w-24"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  {['Focus', 'Review', 'Practice'].map((t) => (
+                                    <SelectItem key={t} value={t} className="text-xs">{t}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => deleteSession(s.id)}>
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <>
+                              <p className="text-xs text-muted-foreground">{s.startTime} · {s.duration}h · {s.sessionType}</p>
+                              <p className="text-xs text-muted-foreground mt-1 italic">💡 {s.tip}</p>
+                            </>
+                          )}
                         </div>
                       </CardContent>
                     </Card>
