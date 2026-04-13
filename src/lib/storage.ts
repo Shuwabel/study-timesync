@@ -25,3 +25,8 @@ export function deleteTimetable(id: string): void {
   const existing = getTimetables().filter((t) => t.id !== id);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(existing));
 }
+
+export function updateTimetable(updated: Timetable): void {
+  const existing = getTimetables().map((t) => (t.id === updated.id ? updated : t));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(existing));
+}

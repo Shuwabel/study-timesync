@@ -4,7 +4,7 @@ export interface Course {
   colorIndex: number;
   examDate?: Date;
   noExam: boolean;
-  priority: number;
+  priority: number; // auto-calculated
   difficulty: number;
 }
 
@@ -13,9 +13,9 @@ export interface StudySession {
   courseId: string;
   courseName: string;
   colorIndex: number;
-  date: string; // ISO date string
-  startTime: string; // e.g. "09:00"
-  duration: number; // hours
+  date: string;
+  startTime: string;
+  duration: number;
   sessionType: 'Focus' | 'Review' | 'Practice';
   tip: string;
 }
@@ -23,6 +23,7 @@ export interface StudySession {
 export interface Timetable {
   id: string;
   title: string;
+  description?: string;
   createdAt: string;
   courses: Course[];
   sessions: StudySession[];
@@ -37,6 +38,8 @@ export interface Timetable {
 export interface GeneratorState {
   step: number;
   courses: Course[];
+  timetableName: string;
+  timetableDescription: string;
   dailyHours: number;
   timePreference: string;
   restDays: string[];
@@ -47,10 +50,11 @@ export interface GeneratorState {
   addCourse: () => void;
   removeCourse: (id: string) => void;
   setCourseCount: (count: number) => void;
+  setTimetableName: (name: string) => void;
+  setTimetableDescription: (desc: string) => void;
   setDailyHours: (hours: number) => void;
   setTimePreference: (pref: string) => void;
   setRestDays: (days: string[]) => void;
   setStartDate: (date: Date) => void;
-  reorderCourses: (courseIds: string[]) => void;
   reset: () => void;
 }

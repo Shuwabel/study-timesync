@@ -5,17 +5,18 @@ import { generateTimetable } from '@/lib/timetableGenerator';
 import { saveTimetable } from '@/lib/storage';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, ArrowRight, GraduationCap } from 'lucide-react';
+import { ArrowLeft, ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import Logo from '@/components/Logo';
 import StepCourses from '@/components/generator/StepCourses';
 import StepExamDates from '@/components/generator/StepExamDates';
-import StepPriority from '@/components/generator/StepPriority';
 import StepDifficulty from '@/components/generator/StepDifficulty';
 import StepAvailability from '@/components/generator/StepAvailability';
 import StepReview from '@/components/generator/StepReview';
 import { useState } from 'react';
 
-const STEP_LABELS = ['Courses', 'Exam Dates', 'Priority', 'Difficulty', 'Availability', 'Review'];
+const STEP_LABELS = ['Courses', 'Exam Dates', 'Difficulty', 'Availability', 'Review'];
+const TOTAL_STEPS = 5;
 
 export default function Generate() {
   const navigate = useNavigate();
@@ -27,6 +28,14 @@ export default function Generate() {
     return true;
   };
 
+  const handleBack = () => {
+    if (store.step === 1) {
+      navigate('/');
+    } else {
+      store.setStep(store.step - 1);
+    }
+  };
+
   const handleGenerate = () => {
     setGenerating(true);
     setTimeout(() => {
@@ -35,7 +44,9 @@ export default function Generate() {
         store.dailyHours,
         store.timePreference,
         store.restDays,
-        store.startDate
+        store.startDate,
+        store.timetableName,
+        store.timetableDescription
       );
       saveTimetable(tt);
       store.reset();
@@ -47,21 +58,19 @@ export default function Generate() {
     switch (store.step) {
       case 1: return <StepCourses />;
       case 2: return <StepExamDates />;
-      case 3: return <StepPriority />;
-      case 4: return <StepDifficulty />;
-      case 5: return <StepAvailability />;
-      case 6: return <StepReview onGenerate={handleGenerate} generating={generating} />;
+      case 3: return <StepDifficulty />;
+      case 4: return <StepAvailability />;
+      case 5: return <StepReview onGenerate={handleGenerate} generating={generating} />;
       default: return null;
     }
   };
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Nav */}
       <nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md bg-background/80 border-b border-border">
         <div className="container mx-auto flex items-center justify-between h-16 px-4">
           <Link to="/" className="flex items-center gap-2 font-bold text-xl">
-            <GraduationCap className="h-6 w-6 text-primary" />
+            <Logo className="h-7 w-7" />
             <span>StudySync</span>
           </Link>
         </div>
@@ -82,10 +91,10 @@ export default function Generate() {
               </span>
             ))}
             <span className="sm:hidden text-muted-foreground">
-              Step {store.step} of 6 — {STEP_LABELS[store.step - 1]}
+              Step {store.step} of {TOTAL_STEPS} — {STEP_LABELS[store.step - 1]}
             </span>
           </div>
-          <Progress value={(store.step / 6) * 100} className="h-2" />
+          <Progress value={(store.step / TOTAL_STEPS) * 100} className="h-2" />
         </div>
 
         {/* Loading overlay */}
@@ -120,12 +129,11 @@ export default function Generate() {
         </AnimatePresence>
 
         {/* Nav buttons */}
-        {store.step < 6 && (
+        {store.step < TOTAL_STEPS && (
           <div className="flex justify-between mt-8">
             <Button
               variant="outline"
-              onClick={() => store.setStep(Math.max(1, store.step - 1))}
-              disabled={store.step === 1}
+              onClick={handleBack}
               className="gap-2"
             >
               <ArrowLeft className="h-4 w-4" /> Back
