@@ -1,18 +1,36 @@
 import { useGeneratorStore } from '@/store/generatorStore';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { COURSE_COLORS } from '@/lib/constants';
-import { Plus, Minus, X } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function StepCourses() {
-  const { courses, updateCourse, addCourse, removeCourse } = useGeneratorStore();
+  const { courses, updateCourse, addCourse, removeCourse, timetableName, timetableDescription, setTimetableName, setTimetableDescription } = useGeneratorStore();
 
   return (
     <div>
-      <h2 className="text-2xl font-bold mb-1">What are you studying?</h2>
-      <p className="text-muted-foreground mb-6">Add the courses or subjects you need to prepare for.</p>
+      <h2 className="text-2xl font-bold mb-1">Name your timetable</h2>
+      <p className="text-muted-foreground mb-4">Give it a name and add the courses you're studying.</p>
 
+      <div className="space-y-3 mb-8">
+        <Input
+          placeholder="e.g. Semester 2 Finals"
+          value={timetableName}
+          onChange={(e) => setTimetableName(e.target.value)}
+          className="text-base"
+        />
+        <Textarea
+          placeholder="What's this timetable for? (optional)"
+          value={timetableDescription}
+          onChange={(e) => setTimetableDescription(e.target.value)}
+          rows={2}
+          className="resize-none"
+        />
+      </div>
+
+      <h3 className="text-lg font-semibold mb-3">Courses</h3>
       <div className="space-y-3">
         <AnimatePresence>
           {courses.map((course, i) => (

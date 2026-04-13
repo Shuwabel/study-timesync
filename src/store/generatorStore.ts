@@ -14,13 +14,14 @@ const createCourse = (index: number): Course => ({
 export const useGeneratorStore = create<GeneratorState>((set) => ({
   step: 1,
   courses: [createCourse(0), createCourse(1), createCourse(2)],
+  timetableName: '',
+  timetableDescription: '',
   dailyHours: 4,
   timePreference: 'Flexible',
   restDays: ['Sunday'],
   startDate: new Date(),
 
   setStep: (step) => set({ step }),
-
   setCourses: (courses) => set({ courses }),
 
   updateCourse: (id, data) =>
@@ -50,27 +51,20 @@ export const useGeneratorStore = create<GeneratorState>((set) => ({
       return { courses: s.courses.slice(0, count) };
     }),
 
+  setTimetableName: (timetableName) => set({ timetableName }),
+  setTimetableDescription: (timetableDescription) => set({ timetableDescription }),
   setDailyHours: (dailyHours) => set({ dailyHours }),
   setTimePreference: (timePreference) => set({ timePreference }),
   setRestDays: (restDays) => set({ restDays }),
   setStartDate: (startDate) => set({ startDate }),
-
-  reorderCourses: (courseIds) =>
-    set((s) => {
-      const courseMap = new Map(s.courses.map((c) => [c.id, c]));
-      return {
-        courses: courseIds.map((id, i) => ({
-          ...courseMap.get(id)!,
-          priority: i,
-        })),
-      };
-    }),
 
   reset: () => {
     courseCounter = 0;
     set({
       step: 1,
       courses: [createCourse(0), createCourse(1), createCourse(2)],
+      timetableName: '',
+      timetableDescription: '',
       dailyHours: 4,
       timePreference: 'Flexible',
       restDays: ['Sunday'],
