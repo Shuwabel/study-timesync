@@ -40,7 +40,7 @@ export default function Index() {
       <nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md bg-background/80 border-b border-border">
         <div className="container mx-auto flex items-center justify-between h-16 px-4">
           <Link to="/" className="flex items-center gap-2 font-bold text-xl">
-            <GraduationCap className="h-6 w-6 text-primary" />
+            <Logo className="h-6 w-6" />
             <span>StudySync</span>
           </Link>
           <div className="flex items-center gap-3">
@@ -205,7 +205,7 @@ export default function Index() {
       <footer className="border-t border-border py-8">
         <div className="container mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2 font-semibold">
-            <GraduationCap className="h-5 w-5 text-primary" />
+            <Logo className="h-5 w-5" />
             StudySync
           </div>
           <p className="text-sm text-muted-foreground">
