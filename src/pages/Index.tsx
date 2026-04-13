@@ -4,8 +4,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   BookOpen, Calendar, Clock, Sparkles, Download, Edit,
-  BarChart3, ArrowRight, GraduationCap, Zap
+  BarChart3, ArrowRight, Zap
 } from 'lucide-react';
+import Logo from '@/components/Logo';
 
 const fadeUp = {
   hidden: { opacity: 0, y: 30 },
