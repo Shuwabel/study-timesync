@@ -1,6 +1,5 @@
 import { Course, StudySession, Timetable } from './types';
 import { addDays, format, differenceInDays, isBefore } from 'date-fns';
-import { SESSION_TYPES } from './constants';
 
 const TIPS = {
   Focus: [
@@ -28,13 +27,41 @@ function getRandomTip(type: 'Focus' | 'Review' | 'Practice'): string {
   return tips[Math.floor(Math.random() * tips.length)];
 }
 
-function getTimeSlot(pref: string): string {
+function getTimeSlot(pref: string): number {
   switch (pref) {
-    case 'Morning': return '08:00';
-    case 'Afternoon': return '13:00';
-    case 'Evening': return '18:00';
-    default: return '09:00';
+    case 'Morning': return 8;
+    case 'Afternoon': return 13;
+    case 'Evening': return 18;
+    default: return 9;
   }
+}
+
+/** Auto-calculate urgency score: higher = more urgent */
+function getUrgencyScore(course: Course, currentDate: Date): number {
+  if (course.noExam || !course.examDate) {
+    // No exam → low baseline urgency, scaled by difficulty
+    return course.difficulty * 0.1;
+  }
+  const daysLeft = Math.max(1, differenceInDays(new Date(course.examDate), currentDate));
+  return course.difficulty / daysLeft;
+}
+
+/** Determine session type based on days to exam */
+function getSessionType(course: Course, currentDate: Date, startDate: Date): 'Focus' | 'Review' | 'Practice' {
+  if (course.examDate && !course.noExam) {
+    const daysLeft = differenceInDays(new Date(course.examDate), currentDate);
+    if (daysLeft <= 3) return 'Practice';
+    if (daysLeft <= 7) return 'Review';
+    return 'Focus';
+  }
+  const daysSinceStart = differenceInDays(currentDate, startDate);
+  const types: ('Focus' | 'Review' | 'Practice')[] = ['Focus', 'Review', 'Practice'];
+  return types[daysSinceStart % 3];
+}
+
+/** Round to nearest 15 minutes (in hours) */
+function roundTo15(hours: number): number {
+  return Math.round(hours * 4) / 4;
 }
 
 export function generateTimetable(
@@ -42,16 +69,11 @@ export function generateTimetable(
   dailyHours: number,
   timePreference: string,
   restDays: string[],
-  startDate: Date
+  startDate: Date,
+  timetableName?: string,
+  timetableDescription?: string
 ): Timetable {
   const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  const sorted = [...courses].sort((a, b) => a.priority - b.priority);
-
-  // Calculate weights based on priority + difficulty
-  const totalWeight = sorted.reduce((sum, c, i) => {
-    const priorityWeight = sorted.length - i;
-    return sum + priorityWeight * c.difficulty;
-  }, 0);
 
   // Determine end date — latest exam or 4 weeks from start
   let endDate = addDays(startDate, 28);
@@ -68,46 +90,104 @@ export function generateTimetable(
   let sessionCounter = 0;
   let currentDate = new Date(startDate);
 
+  // Track how many days since each course was last studied (for rotation fairness)
+  const lastStudied: Record<string, number> = {};
+  courses.forEach((c) => { lastStudied[c.id] = -999; });
+  let dayIndex = 0;
+
   while (isBefore(currentDate, endDate)) {
     const dayName = dayNames[currentDate.getDay()];
     if (restDays.includes(dayName)) {
       currentDate = addDays(currentDate, 1);
+      dayIndex++;
       continue;
     }
 
+    // 1. Get active courses (exam not yet passed)
+    const activeCourses = courses.filter((c) => {
+      if (c.noExam) return true;
+      if (!c.examDate) return true;
+      return !isBefore(new Date(c.examDate), currentDate);
+    });
+
+    if (activeCourses.length === 0) {
+      currentDate = addDays(currentDate, 1);
+      dayIndex++;
+      continue;
+    }
+
+    // 2. Calculate max courses per day — at least 1h per course
+    const maxCoursesPerDay = Math.max(2, Math.floor(dailyHours / 1));
+    const coursesToday = Math.min(activeCourses.length, maxCoursesPerDay);
+
+    // 3. Score each active course by urgency + days since last studied
+    const scored = activeCourses.map((c) => {
+      const urgency = getUrgencyScore(c, currentDate);
+      const daysSinceLast = dayIndex - (lastStudied[c.id] ?? -999);
+      // Boost courses that haven't been studied recently
+      const rotationBoost = Math.min(daysSinceLast * 0.5, 3);
+      return { course: c, score: urgency + rotationBoost };
+    });
+
+    // Sort by score descending
+    scored.sort((a, b) => b.score - a.score);
+
+    // Pick top N courses for today
+    const todaysCourses = scored.slice(0, coursesToday).map((s) => s.course);
+
+    // 4. Allocate dailyHours proportionally among today's courses
+    const totalUrgency = todaysCourses.reduce((sum, c) => sum + getUrgencyScore(c, currentDate), 0);
     let remainingHours = dailyHours;
-    const startTime = getTimeSlot(timePreference);
+    const allocations: { course: Course; hours: number }[] = [];
 
-    for (const course of sorted) {
-      if (remainingHours <= 0) break;
+    for (let i = 0; i < todaysCourses.length; i++) {
+      const c = todaysCourses[i];
+      const isLast = i === todaysCourses.length - 1;
 
-      // Skip if exam already passed
-      if (course.examDate && !course.noExam) {
-        const examD = new Date(course.examDate);
-        if (isBefore(examD, currentDate)) continue;
+      let hours: number;
+      if (totalUrgency > 0) {
+        const proportion = getUrgencyScore(c, currentDate) / totalUrgency;
+        hours = roundTo15(dailyHours * proportion);
+      } else {
+        hours = roundTo15(dailyHours / todaysCourses.length);
       }
 
-      const priorityWeight = sorted.length - course.priority;
-      const weight = (priorityWeight * course.difficulty) / totalWeight;
-      let hours = Math.max(0.5, Math.round(dailyHours * weight * 2) / 2);
-      hours = Math.min(hours, remainingHours, 3); // cap at 3h per course per day
+      // Clamp: min 0.5h, max 3h, and don't exceed remaining
+      hours = Math.max(0.5, Math.min(hours, 3, remainingHours));
 
+      // Last course gets all remaining time
+      if (isLast) {
+        hours = Math.max(0.5, Math.min(remainingHours, 3));
+        // If there's still leftover after capping at 3, it's lost (rare edge case)
+      }
+
+      allocations.push({ course: c, hours });
+      remainingHours -= hours;
+    }
+
+    // Distribute any leftover (from 3h cap) to courses under 3h
+    if (remainingHours > 0.25) {
+      for (const alloc of allocations) {
+        if (remainingHours <= 0.25) break;
+        const canAdd = 3 - alloc.hours;
+        if (canAdd > 0) {
+          const add = Math.min(roundTo15(canAdd), roundTo15(remainingHours));
+          alloc.hours += add;
+          remainingHours -= add;
+        }
+      }
+    }
+
+    // 5. Create sessions
+    const startHour = getTimeSlot(timePreference);
+    let currentHour = startHour;
+
+    for (const { course, hours } of allocations) {
       if (hours < 0.5) continue;
 
-      // Determine session type based on days to exam
-      let sessionType: 'Focus' | 'Review' | 'Practice' = 'Focus';
-      if (course.examDate && !course.noExam) {
-        const daysLeft = differenceInDays(new Date(course.examDate), currentDate);
-        if (daysLeft <= 3) sessionType = 'Practice';
-        else if (daysLeft <= 7) sessionType = 'Review';
-      } else {
-        const daysSinceStart = differenceInDays(currentDate, startDate);
-        const types = SESSION_TYPES as readonly string[];
-        sessionType = types[daysSinceStart % 3] as any;
-      }
-
-      const currentHour = parseInt(startTime.split(':')[0]) +
-        (dailyHours - remainingHours);
+      const sessionType = getSessionType(course, currentDate, startDate);
+      const hourInt = Math.min(23, Math.floor(currentHour));
+      const minInt = Math.round((currentHour % 1) * 60);
 
       sessions.push({
         id: `session-${++sessionCounter}`,
@@ -115,26 +195,32 @@ export function generateTimetable(
         courseName: course.name || `Course ${course.colorIndex + 1}`,
         colorIndex: course.colorIndex,
         date: format(currentDate, 'yyyy-MM-dd'),
-        startTime: `${String(Math.min(23, Math.floor(currentHour))).padStart(2, '0')}:00`,
+        startTime: `${String(hourInt).padStart(2, '0')}:${String(minInt).padStart(2, '0')}`,
         duration: hours,
         sessionType,
         tip: getRandomTip(sessionType),
       });
 
-      remainingHours -= hours;
+      lastStudied[course.id] = dayIndex;
+      currentHour += hours;
     }
 
     currentDate = addDays(currentDate, 1);
+    dayIndex++;
   }
 
-  const id = `tt-${Date.now()}`;
-  return {
-    id,
-    title: courses
+  // Auto-generate title
+  const title = timetableName?.trim() ||
+    courses
       .filter((c) => c.name)
       .map((c) => c.name)
       .slice(0, 3)
-      .join(', ') + (courses.length > 3 ? '...' : '') || 'Study Timetable',
+      .join(', ') + (courses.length > 3 ? '...' : '') || 'Study Timetable';
+
+  return {
+    id: `tt-${Date.now()}`,
+    title,
+    description: timetableDescription?.trim() || undefined,
     createdAt: new Date().toISOString(),
     courses,
     sessions,
