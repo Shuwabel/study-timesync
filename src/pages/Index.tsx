@@ -7,6 +7,7 @@ import {
   BarChart3, ArrowRight, Zap
 } from 'lucide-react';
 import Logo from '@/components/Logo';
+import ThemeToggle from '@/components/ThemeToggle';
 
 const fadeUp = {
   hidden: { opacity: 0, y: 30 },
@@ -44,6 +45,7 @@ export default function Index() {
             <span>StudySync</span>
           </Link>
           <div className="flex items-center gap-3">
+            <ThemeToggle />
             <Link to="/dashboard">
               <Button variant="ghost" size="sm">Dashboard</Button>
             </Link>

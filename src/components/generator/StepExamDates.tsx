@@ -9,7 +9,11 @@ import { CalendarIcon } from 'lucide-react';
 import { format, differenceInDays } from 'date-fns';
 import { cn } from '@/lib/utils';
 
-export default function StepExamDates() {
+interface StepExamDatesProps {
+  showValidation?: boolean;
+}
+
+export default function StepExamDates({ showValidation }: StepExamDatesProps) {
   const { courses, updateCourse } = useGeneratorStore();
   const [openPopoverId, setOpenPopoverId] = useState<string | null>(null);
 
@@ -20,8 +24,8 @@ export default function StepExamDates() {
       <h2 className="text-2xl font-bold mb-1">When are your exams?</h2>
       <p className="text-muted-foreground mb-6">Set exam dates so we can plan your study schedule backwards.</p>
 
-      {missingDates && (
-        <div className="mb-4 p-3 rounded-lg border border-destructive/50 bg-destructive/10 text-destructive text-sm">
+      {showValidation && missingDates && (
+        <div className="mb-4 p-3 rounded-lg border border-destructive/50 bg-destructive/10 text-destructive text-sm animate-pulse">
           Every course needs an exam date or must be marked as "No fixed exam" before you can continue.
         </div>
       )}
@@ -31,7 +35,7 @@ export default function StepExamDates() {
           const daysAway = course.examDate
             ? differenceInDays(new Date(course.examDate), new Date())
             : null;
-          const isMissing = !course.examDate && !course.noExam;
+          const isMissing = showValidation && !course.examDate && !course.noExam;
 
           return (
             <div
