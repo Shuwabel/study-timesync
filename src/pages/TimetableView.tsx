@@ -229,14 +229,30 @@ export default function TimetableView() {
                 const dateStr = format(day, 'yyyy-MM-dd');
                 const sessions = sessionsByDate[dateStr] || [];
                 const isToday = isSameDay(day, new Date());
+                const isRestDay = timetable.preferences.restDays.includes(format(day, 'EEEE'));
+                const totalHours = sessions.reduce((sum, s) => sum + s.duration, 0);
                 return (
                   <div
                     key={dateStr}
-                    className={`min-h-[120px] rounded-lg border p-2 ${isToday ? 'border-primary bg-primary/5' : 'border-border bg-card'}`}
+                    className={`min-h-[120px] rounded-lg border p-2 ${
+                      isToday ? 'border-primary bg-primary/5' :
+                      isRestDay && sessions.length === 0 ? 'border-border bg-muted/50' :
+                      'border-border bg-card'
+                    }`}
                   >
-                    <p className={`text-xs font-medium mb-1 ${isToday ? 'text-primary' : 'text-muted-foreground'}`}>
-                      {format(day, 'EEE d')}
-                    </p>
+                    <div className="flex items-center justify-between mb-1">
+                      <p className={`text-xs font-medium ${isToday ? 'text-primary' : 'text-muted-foreground'}`}>
+                        {format(day, 'EEE d')}
+                      </p>
+                      {totalHours > 0 && (
+                        <span className="text-[10px] font-semibold text-primary bg-primary/10 px-1.5 py-0.5 rounded-full">
+                          {totalHours}h
+                        </span>
+                      )}
+                    </div>
+                    {isRestDay && sessions.length === 0 && (
+                      <p className="text-[10px] text-muted-foreground italic">Rest day</p>
+                    )}
                     <div className="space-y-1">
                       {sessions.map((s) => <SessionCard key={s.id} s={s} compact />)}
                     </div>
