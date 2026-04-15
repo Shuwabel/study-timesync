@@ -14,6 +14,7 @@ import StepDifficulty from '@/components/generator/StepDifficulty';
 import StepAvailability from '@/components/generator/StepAvailability';
 import StepReview from '@/components/generator/StepReview';
 import { useState } from 'react';
+import ThemeToggle from '@/components/ThemeToggle';
 
 const STEP_LABELS = ['Courses', 'Exam Dates', 'Difficulty', 'Availability', 'Review'];
 const TOTAL_STEPS = 5;
@@ -22,6 +23,7 @@ export default function Generate() {
   const navigate = useNavigate();
   const store = useGeneratorStore();
   const [generating, setGenerating] = useState(false);
+  const [attemptedNext, setAttemptedNext] = useState(false);
 
   const canNext = () => {
     if (store.step === 1) {
@@ -66,7 +68,7 @@ export default function Generate() {
   const stepContent = () => {
     switch (store.step) {
       case 1: return <StepCourses />;
-      case 2: return <StepExamDates />;
+      case 2: return <StepExamDates showValidation={attemptedNext} />;
       case 3: return <StepDifficulty />;
       case 4: return <StepAvailability />;
       case 5: return <StepReview onGenerate={handleGenerate} generating={generating} />;
@@ -82,6 +84,7 @@ export default function Generate() {
             <Logo className="h-7 w-7" />
             <span>StudySync</span>
           </Link>
+          <ThemeToggle />
         </div>
       </nav>
 
@@ -148,8 +151,14 @@ export default function Generate() {
               <ArrowLeft className="h-4 w-4" /> Back
             </Button>
             <Button
-              onClick={() => store.setStep(store.step + 1)}
-              disabled={!canNext()}
+              onClick={() => {
+                if (!canNext()) {
+                  setAttemptedNext(true);
+                  return;
+                }
+                setAttemptedNext(false);
+                store.setStep(store.step + 1);
+              }}
               className="gap-2"
             >
               Next <ArrowRight className="h-4 w-4" />
