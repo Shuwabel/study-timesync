@@ -24,7 +24,16 @@ export default function Generate() {
   const [generating, setGenerating] = useState(false);
 
   const canNext = () => {
-    if (store.step === 1) return store.courses.every((c) => c.name.trim() !== '');
+    if (store.step === 1) {
+      const allNamed = store.courses.every((c) => c.name.trim() !== '');
+      if (!allNamed) return false;
+      const names = store.courses.map((c) => c.name.trim().toLowerCase());
+      const hasDuplicates = new Set(names).size !== names.length;
+      return !hasDuplicates;
+    }
+    if (store.step === 2) {
+      return store.courses.every((c) => c.examDate || c.noExam);
+    }
     return true;
   };
 
