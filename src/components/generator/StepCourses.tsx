@@ -5,9 +5,21 @@ import { Button } from '@/components/ui/button';
 import { COURSE_COLORS } from '@/lib/constants';
 import { Plus, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useMemo } from 'react';
 
 export default function StepCourses() {
   const { courses, updateCourse, addCourse, removeCourse, timetableName, timetableDescription, setTimetableName, setTimetableDescription } = useGeneratorStore();
+
+  const duplicateNames = useMemo(() => {
+    const names = courses.map((c) => c.name.trim().toLowerCase()).filter(Boolean);
+    const seen = new Set<string>();
+    const dupes = new Set<string>();
+    names.forEach((n) => {
+      if (seen.has(n)) dupes.add(n);
+      seen.add(n);
+    });
+    return dupes;
+  }, [courses]);
 
   return (
     <div>
@@ -33,31 +45,38 @@ export default function StepCourses() {
       <h3 className="text-lg font-semibold mb-3">Courses</h3>
       <div className="space-y-3">
         <AnimatePresence>
-          {courses.map((course, i) => (
-            <motion.div
-              key={course.id}
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              className="flex items-center gap-3"
-            >
-              <div
-                className="w-4 h-4 rounded-full shrink-0"
-                style={{ backgroundColor: COURSE_COLORS[course.colorIndex].hex }}
-              />
-              <Input
-                placeholder={`Course ${i + 1}`}
-                value={course.name}
-                onChange={(e) => updateCourse(course.id, { name: e.target.value })}
-                className="flex-1"
-              />
-              {courses.length > 1 && (
-                <Button variant="ghost" size="icon" onClick={() => removeCourse(course.id)} className="shrink-0">
-                  <X className="h-4 w-4" />
-                </Button>
-              )}
-            </motion.div>
-          ))}
+          {courses.map((course, i) => {
+            const isDuplicate = course.name.trim() !== '' && duplicateNames.has(course.name.trim().toLowerCase());
+            return (
+              <motion.div
+                key={course.id}
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+              >
+                <div className="flex items-center gap-3">
+                  <div
+                    className="w-4 h-4 rounded-full shrink-0"
+                    style={{ backgroundColor: COURSE_COLORS[course.colorIndex].hex }}
+                  />
+                  <Input
+                    placeholder={`Course ${i + 1}`}
+                    value={course.name}
+                    onChange={(e) => updateCourse(course.id, { name: e.target.value })}
+                    className={`flex-1 ${isDuplicate ? 'border-destructive ring-1 ring-destructive' : ''}`}
+                  />
+                  {courses.length > 1 && (
+                    <Button variant="ghost" size="icon" onClick={() => removeCourse(course.id)} className="shrink-0">
+                      <X className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+                {isDuplicate && (
+                  <p className="text-destructive text-xs mt-1 ml-7">Duplicate course name — each course must have a unique name.</p>
+                )}
+              </motion.div>
+            );
+          })}
         </AnimatePresence>
       </div>
 
