@@ -260,6 +260,16 @@ export default function TimetableView() {
                 );
               })}
             </div>
+
+            {/* Course Legend */}
+            <div className="flex flex-wrap gap-3 mt-4 pt-3 border-t border-border">
+              {timetable.courses.map((c) => (
+                <div key={c.id} className="flex items-center gap-1.5 text-xs">
+                  <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: COURSE_COLORS[c.colorIndex].hex }} />
+                  <span className="text-muted-foreground">{c.name}</span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
