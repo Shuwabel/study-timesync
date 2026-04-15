@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Plus, Trash2, Eye, CalendarDays } from 'lucide-react';
 import Logo from '@/components/Logo';
+import ThemeToggle from '@/components/ThemeToggle';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
 
@@ -29,9 +30,12 @@ export default function Dashboard() {
             <Logo className="h-6 w-6" />
             <span>StudySync</span>
           </Link>
-          <Link to="/generate">
-            <Button size="sm" className="gap-1"><Plus className="h-4 w-4" /> New</Button>
-          </Link>
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <Link to="/generate">
+              <Button size="sm" className="gap-1"><Plus className="h-4 w-4" /> New</Button>
+            </Link>
+          </div>
         </div>
       </nav>
 
