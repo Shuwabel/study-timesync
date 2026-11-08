@@ -3,7 +3,7 @@ import { COURSE_COLORS, DIFFICULTY_LABELS } from '@/lib/constants';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
-import { Sparkles, Edit2 } from 'lucide-react';
+import { Edit2 } from 'lucide-react';
 
 interface Props {
   onGenerate: () => void;
@@ -16,7 +16,7 @@ export default function StepReview({ onGenerate, generating }: Props) {
   return (
     <div>
       <h2 className="text-2xl font-bold mb-1">Review your plan</h2>
-      <p className="text-muted-foreground mb-6">Double-check everything before we generate your timetable.</p>
+      <p className="text-muted-foreground mb-6">Check the details, then create your plan. It is saved in this browser.</p>
 
       <div className="space-y-4">
         {/* Timetable info */}
@@ -80,7 +80,7 @@ export default function StepReview({ onGenerate, generating }: Props) {
           disabled={generating}
           className="gap-2 text-base px-10 w-full sm:w-auto"
         >
-          <Sparkles className="h-5 w-5" /> Generate My Timetable
+          Create my plan
         </Button>
         <Button variant="ghost" size="sm" onClick={() => store.setStep(store.step - 1)}>
           Go back

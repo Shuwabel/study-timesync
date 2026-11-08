@@ -18,6 +18,8 @@ export interface StudySession {
   duration: number;
   sessionType: 'Focus' | 'Review' | 'Practice';
   tip: string;
+  /** Absent means planned and not yet handled. */
+  status?: 'done' | 'skipped';
 }
 
 export interface Timetable {

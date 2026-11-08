@@ -1,106 +1,132 @@
-import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { getTimetables, deleteTimetable } from '@/lib/storage';
-import { Timetable } from '@/lib/types';
+import { format, parseISO } from 'date-fns';
+import { Copy, Plus, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
+import AppShell from '@/components/AppShell';
+import RouteChip from '@/components/RouteChip';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Plus, Trash2, Eye, CalendarDays } from 'lucide-react';
-import Logo from '@/components/Logo';
-import ThemeToggle from '@/components/ThemeToggle';
-import { format } from 'date-fns';
-import { motion } from 'framer-motion';
+import { useTimetables, useTodayKey } from '@/hooks/use-timetables';
+import { createSamplePlan } from '@/lib/sample';
+import { formatDuration, progress, upcomingExams } from '@/lib/schedule';
+import { deleteTimetable, duplicateTimetable, restoreTimetable, saveTimetable } from '@/lib/storage';
 
 export default function Dashboard() {
-  const [timetables, setTimetables] = useState<Timetable[]>([]);
+  const { timetables, refresh } = useTimetables();
+  const today = useTodayKey();
 
-  useEffect(() => {
-    setTimetables(getTimetables());
-  }, []);
+  const remove = (id: string) => {
+    const { removed, index } = deleteTimetable(id);
+    refresh();
+    if (!removed) return;
+    toast(`Deleted "${removed.title}"`, {
+      duration: 8000,
+      action: {
+        label: 'Undo',
+        onClick: () => {
+          restoreTimetable(removed, index);
+          refresh();
+        },
+      },
+    });
+  };
 
-  const handleDelete = (id: string) => {
-    deleteTimetable(id);
-    setTimetables(getTimetables());
+  const duplicate = (id: string) => {
+    const copy = duplicateTimetable(id);
+    refresh();
+    if (copy) toast.success(`Created "${copy.title}"`);
+  };
+
+  const addSample = () => {
+    saveTimetable(createSamplePlan());
+    refresh();
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md bg-background/80 border-b border-border">
-        <div className="container mx-auto flex items-center justify-between h-16 px-4">
-          <Link to="/" className="flex items-center gap-2 font-bold text-xl">
-            <Logo className="h-6 w-6" />
-            <span>StudySync</span>
+    <AppShell width="max-w-4xl">
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+        <h1 className="font-display text-5xl font-bold uppercase leading-none tracking-tight md:text-6xl">Plans</h1>
+        <Button asChild>
+          <Link to="/generate">
+            <Plus /> New plan
           </Link>
-          <div className="flex items-center gap-2">
-            <ThemeToggle />
-            <Link to="/generate">
-              <Button size="sm" className="gap-1"><Plus className="h-4 w-4" /> New</Button>
-            </Link>
-          </div>
-        </div>
-      </nav>
-
-      <div className="container mx-auto px-4 pt-24 pb-12">
-        <h1 className="text-2xl font-bold mb-6">Your Timetables</h1>
-
-        {timetables.length === 0 ? (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="flex flex-col items-center justify-center py-20 text-center"
-          >
-            <CalendarDays className="h-16 w-16 text-muted-foreground/30 mb-4" />
-            <h2 className="text-lg font-semibold mb-2">No timetables yet</h2>
-            <p className="text-muted-foreground mb-6 max-w-sm">
-              Create your first AI-powered study timetable and start studying smarter.
-            </p>
-            <Link to="/generate">
-              <Button className="gap-2">
-                <Plus className="h-4 w-4" /> Create My First Timetable
-              </Button>
-            </Link>
-          </motion.div>
-        ) : (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {timetables.map((tt, i) => (
-              <motion.div
-                key={tt.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.05 }}
-              >
-                <Card className="hover:shadow-md transition-shadow">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base truncate">{tt.title}</CardTitle>
-                    <p className="text-xs text-muted-foreground">
-                      Created {format(new Date(tt.createdAt), 'MMM d, yyyy')}
-                    </p>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-sm text-muted-foreground mb-4">
-                      {tt.courses.length} courses · {tt.sessions.length} sessions
-                    </p>
-                    <div className="flex gap-2">
-                      <Link to={`/timetable/${tt.id}`} className="flex-1">
-                        <Button variant="outline" size="sm" className="w-full gap-1">
-                          <Eye className="h-3 w-3" /> View
-                        </Button>
-                      </Link>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleDelete(tt.id)}
-                        className="text-destructive hover:text-destructive"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            ))}
-          </div>
-        )}
+        </Button>
       </div>
-    </div>
+
+      {timetables.length === 0 ? (
+        <section className="border border-border bg-card p-6 md:p-10">
+          <h2 className="font-display text-3xl font-bold uppercase leading-none">No plans yet</h2>
+          <p className="mt-3 max-w-prose text-muted-foreground">Create one from your courses and exam dates, or add a sample to look around first.</p>
+          <div className="mt-5 flex flex-wrap gap-3">
+            <Button asChild size="lg">
+              <Link to="/generate">Create my plan</Link>
+            </Button>
+            <Button size="lg" variant="outline" onClick={addSample}>
+              Try a sample plan
+            </Button>
+          </div>
+        </section>
+      ) : (
+        <ul className="border-t border-border">
+          {timetables.map((tt) => {
+            const stats = progress(tt);
+            const next = upcomingExams(tt, today)[0];
+            return (
+              <li key={tt.id} className="border-b border-border py-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <h2 className="truncate font-display text-3xl font-bold uppercase leading-none">
+                      <Link to={`/timetable/${tt.id}`} className="hover:underline">
+                        {tt.title}
+                      </Link>
+                    </h2>
+                    <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+                      <span className="flex items-center gap-1">
+                        {tt.courses.slice(0, 8).map((c, i) => (
+                          <RouteChip key={c.id} colorIndex={c.colorIndex} label={i + 1} className="h-5 min-w-5 text-xs" />
+                        ))}
+                      </span>
+                      <span>
+                        {tt.courses.length} course{tt.courses.length === 1 ? '' : 's'}
+                      </span>
+                      <span>Created {format(new Date(tt.createdAt), 'd MMM yyyy')}</span>
+                    </p>
+                  </div>
+                  <div className="flex gap-1">
+                    <Button asChild variant="outline">
+                      <Link to={`/timetable/${tt.id}`}>Open</Link>
+                    </Button>
+                    <Button variant="ghost" size="icon" aria-label={`Duplicate ${tt.title}`} onClick={() => duplicate(tt.id)}>
+                      <Copy />
+                    </Button>
+                    <Button variant="ghost" size="icon" aria-label={`Delete ${tt.title}`} onClick={() => remove(tt.id)}>
+                      <Trash2 />
+                    </Button>
+                  </div>
+                </div>
+                <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+                  <div>
+                    <div className="h-2 bg-muted" role="img" aria-label={`${Math.round(stats.ratio * 100)} percent done`}>
+                      <div className="h-full bg-foreground" style={{ width: `${Math.round(stats.ratio * 100)}%` }} />
+                    </div>
+                    <p className="tnum mt-1 text-sm text-muted-foreground">
+                      {formatDuration(stats.doneHours)} done of {formatDuration(stats.plannedHours)} · {stats.sessionsDone}/{stats.sessions} sessions
+                    </p>
+                  </div>
+                  {next && (
+                    <p className="text-sm sm:text-right">
+                      <span className="font-semibold">{next.course.name}</span>{' '}
+                      <span className="text-muted-foreground">
+                        {format(parseISO(next.day), 'd MMM')} ·{' '}
+                        {next.daysLeft === 0 ? 'today' : `${next.daysLeft} day${next.daysLeft === 1 ? '' : 's'}`}
+                      </span>
+                    </p>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </AppShell>
   );
 }

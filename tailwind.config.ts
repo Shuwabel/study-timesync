@@ -1,3 +1,4 @@
+import animate from "tailwindcss-animate";
 import type { Config } from "tailwindcss";
 
 export default {
@@ -13,6 +14,10 @@ export default {
       },
     },
     extend: {
+      fontFamily: {
+        sans: ['Barlow', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
+        display: ['"Barlow Condensed"', 'Barlow', 'system-ui', 'sans-serif'],
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -42,6 +47,10 @@ export default {
         popover: {
           DEFAULT: "hsl(var(--popover))",
           foreground: "hsl(var(--popover-foreground))",
+        },
+        signal: {
+          DEFAULT: "hsl(var(--signal))",
+          foreground: "hsl(var(--signal-foreground))",
         },
         card: {
           DEFAULT: "hsl(var(--card))",
@@ -87,5 +96,5 @@ export default {
       },
     },
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [animate],
 } satisfies Config;
