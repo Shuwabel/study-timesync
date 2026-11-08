@@ -1,5 +1,6 @@
 import { Course, StudySession, Timetable } from './types';
 import { addDays, format, differenceInDays, isBefore } from 'date-fns';
+import { dayKey, examDayKey } from './schedule';
 
 const TIPS = {
   Focus: [
@@ -104,10 +105,11 @@ export function generateTimetable(
     }
 
     // 1. Get active courses (exam not yet passed)
+    // A course stops being studied on the day of its exam.
+    const today = dayKey(currentDate);
     const activeCourses = courses.filter((c) => {
-      if (c.noExam) return true;
-      if (!c.examDate) return true;
-      return !isBefore(new Date(c.examDate), currentDate);
+      const exam = examDayKey(c);
+      return exam === null || exam > today;
     });
 
     if (activeCourses.length === 0) {
@@ -179,7 +181,9 @@ export function generateTimetable(
     }
 
     // 5. Create sessions
-    const startHour = getTimeSlot(timePreference);
+    // Start earlier on long days so the last session still ends before 23:00.
+    const dayTotal = allocations.reduce((sum, a) => sum + (a.hours >= 0.5 ? a.hours : 0), 0);
+    const startHour = Math.max(5, Math.min(getTimeSlot(timePreference), 23 - dayTotal));
     let currentHour = startHour;
 
     for (const { course, hours } of allocations) {
