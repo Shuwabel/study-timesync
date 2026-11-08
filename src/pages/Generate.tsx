@@ -1,68 +1,71 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
-import { useGeneratorStore } from '@/store/generatorStore';
-import { generateTimetable } from '@/lib/timetableGenerator';
-import { saveTimetable } from '@/lib/storage';
-import { Progress } from '@/components/ui/progress';
-import { Button } from '@/components/ui/button';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { ArrowLeft, ArrowRight } from 'lucide-react';
-import { Link } from 'react-router-dom';
-import Logo from '@/components/Logo';
+import AppShell from '@/components/AppShell';
 import StepCourses from '@/components/generator/StepCourses';
 import StepExamDates from '@/components/generator/StepExamDates';
 import StepDifficulty from '@/components/generator/StepDifficulty';
 import StepAvailability from '@/components/generator/StepAvailability';
 import StepReview from '@/components/generator/StepReview';
-import { useState } from 'react';
-import ThemeToggle from '@/components/ThemeToggle';
+import { Button } from '@/components/ui/button';
+import { useGeneratorStore } from '@/store/generatorStore';
+import { generateTimetable } from '@/lib/timetableGenerator';
+import { saveTimetable } from '@/lib/storage';
+import { cn } from '@/lib/utils';
 
-const STEP_LABELS = ['Courses', 'Exam Dates', 'Difficulty', 'Availability', 'Review'];
-const TOTAL_STEPS = 5;
+const STEP_LABELS = ['Courses', 'Exam dates', 'Difficulty', 'Availability', 'Review'];
+const TOTAL_STEPS = STEP_LABELS.length;
 
 export default function Generate() {
   const navigate = useNavigate();
   const store = useGeneratorStore();
+  const reduceMotion = useReducedMotion();
   const [generating, setGenerating] = useState(false);
   const [attemptedNext, setAttemptedNext] = useState(false);
 
+  const namesProblem = (() => {
+    if (store.courses.some((c) => c.name.trim() === '')) return 'Give every course a name, or remove the empty ones.';
+    const names = store.courses.map((c) => c.name.trim().toLowerCase());
+    if (new Set(names).size !== names.length) return 'Two courses share a name. Each course needs its own.';
+    return null;
+  })();
+
   const canNext = () => {
-    if (store.step === 1) {
-      const allNamed = store.courses.every((c) => c.name.trim() !== '');
-      if (!allNamed) return false;
-      const names = store.courses.map((c) => c.name.trim().toLowerCase());
-      const hasDuplicates = new Set(names).size !== names.length;
-      return !hasDuplicates;
-    }
-    if (store.step === 2) {
-      return store.courses.every((c) => c.examDate || c.noExam);
-    }
+    if (store.step === 1) return namesProblem === null;
+    if (store.step === 2) return store.courses.every((c) => c.examDate || c.noExam);
     return true;
   };
 
   const handleBack = () => {
-    if (store.step === 1) {
-      navigate('/');
-    } else {
-      store.setStep(store.step - 1);
+    if (store.step === 1) navigate(-1);
+    else store.setStep(store.step - 1);
+  };
+
+  const handleNext = () => {
+    if (!canNext()) {
+      setAttemptedNext(true);
+      return;
     }
+    setAttemptedNext(false);
+    store.setStep(store.step + 1);
   };
 
   const handleGenerate = () => {
+    if (generating) return;
     setGenerating(true);
-    setTimeout(() => {
-      const tt = generateTimetable(
-        store.courses,
-        store.dailyHours,
-        store.timePreference,
-        store.restDays,
-        store.startDate,
-        store.timetableName,
-        store.timetableDescription
-      );
-      saveTimetable(tt);
-      store.reset();
-      navigate(`/timetable/${tt.id}`);
-    }, 1500);
+    const tt = generateTimetable(
+      store.courses,
+      store.dailyHours,
+      store.timePreference,
+      store.restDays,
+      store.startDate,
+      store.timetableName,
+      store.timetableDescription,
+    );
+    saveTimetable(tt);
+    store.reset();
+    navigate(`/timetable/${tt.id}`);
   };
 
   const stepContent = () => {
@@ -77,95 +80,56 @@ export default function Generate() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md bg-background/80 border-b border-border">
-        <div className="container mx-auto flex items-center justify-between h-16 px-4">
-          <Link to="/" className="flex items-center gap-2 font-bold text-xl">
-            <Logo className="h-7 w-7" />
-            <span>StudySync</span>
-          </Link>
-          <ThemeToggle />
-        </div>
+    <AppShell width="max-w-2xl">
+      <h1 className="sr-only">Create a plan</h1>
+      <nav aria-label="Steps" className="mb-8">
+        <ol className="grid grid-cols-5 gap-1">
+          {STEP_LABELS.map((label, i) => {
+            const n = i + 1;
+            const state = n < store.step ? 'done' : n === store.step ? 'current' : 'todo';
+            return (
+              <li key={label} aria-current={state === 'current' ? 'step' : undefined}>
+                <div className={cn('h-1.5', state === 'todo' ? 'bg-muted' : 'bg-foreground')} />
+                <p className={cn('mt-1.5 text-xs font-semibold sm:text-sm', state === 'current' ? 'text-foreground' : 'text-muted-foreground')}>
+                  <span className="sm:hidden">{state === 'current' ? label : n}</span>
+                  <span className="hidden sm:inline">
+                    {n}. {label}
+                  </span>
+                </p>
+              </li>
+            );
+          })}
+        </ol>
       </nav>
 
-      <div className="container mx-auto px-4 pt-24 pb-12 max-w-2xl">
-        {/* Progress */}
-        <div className="mb-8">
-          <div className="flex justify-between text-sm mb-2">
-            {STEP_LABELS.map((label, i) => (
-              <span
-                key={label}
-                className={`hidden sm:block font-medium transition-colors ${
-                  i + 1 <= store.step ? 'text-primary' : 'text-muted-foreground'
-                }`}
-              >
-                {label}
-              </span>
-            ))}
-            <span className="sm:hidden text-muted-foreground">
-              Step {store.step} of {TOTAL_STEPS} — {STEP_LABELS[store.step - 1]}
-            </span>
-          </div>
-          <Progress value={(store.step / TOTAL_STEPS) * 100} className="h-2" />
+      {store.step === 1 && attemptedNext && namesProblem && (
+        <p role="alert" className="mb-4 border border-destructive p-3 text-sm font-medium text-destructive">
+          {namesProblem}
+        </p>
+      )}
+
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={store.step}
+          initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={reduceMotion ? undefined : { opacity: 0 }}
+          transition={{ duration: 0.18, ease: 'easeOut' }}
+        >
+          {stepContent()}
+        </motion.div>
+      </AnimatePresence>
+
+      {store.step < TOTAL_STEPS && (
+        <div className="mt-8 flex justify-between gap-3">
+          <Button variant="outline" size="lg" onClick={handleBack}>
+            <ArrowLeft /> Back
+          </Button>
+          <Button size="lg" onClick={handleNext}>
+            Next <ArrowRight />
+          </Button>
         </div>
-
-        {/* Loading overlay */}
-        <AnimatePresence>
-          {generating && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm"
-            >
-              <div className="text-center">
-                <div className="w-16 h-16 border-4 border-primary/30 border-t-primary rounded-full animate-spin mx-auto mb-4" />
-                <p className="text-lg font-semibold">Generating your timetable...</p>
-                <p className="text-sm text-muted-foreground mt-1">Our AI is crafting the perfect plan</p>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Step Content */}
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={store.step}
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            transition={{ duration: 0.25 }}
-          >
-            {stepContent()}
-          </motion.div>
-        </AnimatePresence>
-
-        {/* Nav buttons */}
-        {store.step < TOTAL_STEPS && (
-          <div className="flex justify-between mt-8">
-            <Button
-              variant="outline"
-              onClick={handleBack}
-              className="gap-2"
-            >
-              <ArrowLeft className="h-4 w-4" /> Back
-            </Button>
-            <Button
-              onClick={() => {
-                if (!canNext()) {
-                  setAttemptedNext(true);
-                  return;
-                }
-                setAttemptedNext(false);
-                store.setStep(store.step + 1);
-              }}
-              className="gap-2"
-            >
-              Next <ArrowRight className="h-4 w-4" />
-            </Button>
-          </div>
-        )}
-      </div>
-    </div>
+      )}
+    </AppShell>
   );
 }

@@ -1,488 +1,361 @@
-import { useParams, Link } from 'react-router-dom';
-import { useState, useMemo } from 'react';
-import { getTimetableById, updateTimetable } from '@/lib/storage';
-import { COURSE_COLORS } from '@/lib/constants';
-import { StudySession, Timetable } from '@/lib/types';
-import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { addDays, format, startOfWeek, parseISO, isSameDay, differenceInDays, isBefore } from 'date-fns';
-import { Download, CalendarIcon, List, LayoutGrid, ChevronLeft, ChevronRight, Share2, Pencil, X, Check, Trash2, Plus, Clock } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { addDays, format, isSameDay, parseISO, startOfWeek } from 'date-fns';
+import { CalendarPlus, ChevronLeft, ChevronRight, FileDown, Link2, TriangleAlert } from 'lucide-react';
 import { toast } from 'sonner';
-import jsPDF from 'jspdf';
-import Logo from '@/components/Logo';
-import ThemeToggle from '@/components/ThemeToggle';
+import AppShell from '@/components/AppShell';
+import RouteChip, { routeNumber } from '@/components/RouteChip';
+import SessionEditDialog, { SessionEdit } from '@/components/SessionEditDialog';
+import SessionRow, { DoneButton, SessionMenu } from '@/components/SessionRow';
+import { Button } from '@/components/ui/button';
+import { useSessionActions } from '@/hooks/use-session-actions';
+import { useTimetables, useTodayKey } from '@/hooks/use-timetables';
+import { downloadICS } from '@/lib/ics';
+import { exportPDF } from '@/lib/pdf';
+import { shareUrl } from '@/lib/share';
+import {
+  dayKey,
+  endTime,
+  formatDuration,
+  groupByDate,
+  moveSession,
+  planWarnings,
+  plannedHours,
+  progress,
+  setSessionStatus,
+  updateSession,
+  upcomingExams,
+  DAY_NAMES,
+} from '@/lib/schedule';
+import { cn } from '@/lib/utils';
+import type { StudySession } from '@/lib/types';
 
 export default function TimetableView() {
   const { id } = useParams<{ id: string }>();
-  const [timetable, setTimetable] = useState<Timetable | undefined>(() => getTimetableById(id || ''));
-  const [view, setView] = useState<'calendar' | 'list'>('calendar');
-  const [weekOffset, setWeekOffset] = useState(0);
-  const [editMode, setEditMode] = useState(false);
+  const [params] = useSearchParams();
+  const { timetables, apply } = useTimetables();
+  const today = useTodayKey();
+  const tt = timetables.find((t) => t.id === id);
+  const actions = useSessionActions(apply);
 
-  const allDates = timetable?.sessions.map((s) => parseISO(s.date)) || [];
-  const minDate = allDates.length ? new Date(Math.min(...allDates.map((d) => d.getTime()))) : new Date();
-  const currentWeekStart = addDays(startOfWeek(minDate, { weekStartsOn: 1 }), weekOffset * 7);
-  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(currentWeekStart, i));
+  const [view, setView] = useState<'week' | 'agenda'>('week');
+  const [editing, setEditing] = useState<StudySession | null>(null);
 
-  const sessionsByDate = useMemo(() => {
-    if (!timetable) return {};
-    const map: Record<string, StudySession[]> = {};
-    timetable.sessions.forEach((s) => {
-      if (!map[s.date]) map[s.date] = [];
-      map[s.date].push(s);
-    });
+  const firstDate = useMemo(() => {
+    const dates = (tt?.sessions ?? []).map((s) => s.date).sort();
+    return dates[0] ?? today;
+  }, [tt, today]);
+  const lastDate = useMemo(() => {
+    const dates = (tt?.sessions ?? []).map((s) => s.date).sort();
+    return dates[dates.length - 1] ?? today;
+  }, [tt, today]);
+
+  const paramDate = params.get('date');
+  const startAnchor = paramDate ?? (today >= firstDate && today <= lastDate ? today : firstDate);
+  const [selected, setSelected] = useState(startAnchor);
+  const weekStart = startOfWeek(parseISO(selected), { weekStartsOn: 1 });
+  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+
+  const byDate = useMemo(() => groupByDate(tt?.sessions ?? []), [tt]);
+  const exams = useMemo(() => (tt ? upcomingExams(tt, '0000-01-01') : []), [tt]);
+  const examsByDay = useMemo(() => {
+    const map: Record<string, typeof exams> = {};
+    exams.forEach((e) => (map[e.day] ||= []).push(e));
     return map;
-  }, [timetable]);
+  }, [exams]);
 
-  // Next upcoming exam
-  const nextExam = useMemo(() => {
-    if (!timetable) return null;
-    const now = new Date();
-    const upcoming = timetable.courses
-      .filter((c) => c.examDate && !isBefore(new Date(c.examDate), now))
-      .sort((a, b) => new Date(a.examDate!).getTime() - new Date(b.examDate!).getTime());
-    return upcoming[0] || null;
-  }, [timetable]);
-
-  // Upcoming deadlines (exams within 30 days)
-  const upcomingDeadlines = useMemo(() => {
-    if (!timetable) return [];
-    const now = new Date();
-    return timetable.courses
-      .filter((c) => c.examDate && !isBefore(new Date(c.examDate), now))
-      .sort((a, b) => new Date(a.examDate!).getTime() - new Date(b.examDate!).getTime())
-      .slice(0, 4);
-  }, [timetable]);
-
-  // Weekly total hours
-  const weeklyTotalHours = useMemo(() => {
-    let total = 0;
-    weekDays.forEach((day) => {
-      const dateStr = format(day, 'yyyy-MM-dd');
-      const sessions = sessionsByDate[dateStr] || [];
-      total += sessions.reduce((sum, s) => sum + s.duration, 0);
-    });
-    return total;
-  }, [weekDays, sessionsByDate]);
-
-  // Exam dates as map for calendar display
-  const examDateMap = useMemo(() => {
-    if (!timetable) return {};
-    const map: Record<string, { courseName: string; colorIndex: number }[]> = {};
-    timetable.courses.forEach((c) => {
-      if (c.examDate) {
-        const dateStr = format(new Date(c.examDate), 'yyyy-MM-dd');
-        if (!map[dateStr]) map[dateStr] = [];
-        map[dateStr].push({ courseName: c.name, colorIndex: c.colorIndex });
-      }
-    });
-    return map;
-  }, [timetable]);
-
-  if (!timetable) {
+  if (!tt) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-background gap-4">
-        <p className="text-lg text-muted-foreground">Timetable not found.</p>
-        <Link to="/generate"><Button>Create One</Button></Link>
-      </div>
+      <AppShell width="max-w-3xl">
+        <section className="border border-border bg-card p-6 md:p-10">
+          <h1 className="font-display text-4xl font-bold uppercase leading-none">Plan not found</h1>
+          <p className="mt-3 max-w-prose text-muted-foreground">
+            Plans live in the browser that created them. If someone sent you this link, ask them for a new share link: it carries the whole plan inside it.
+          </p>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <Button asChild>
+              <Link to="/dashboard">Your plans</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link to="/generate">Create a plan</Link>
+            </Button>
+          </div>
+        </section>
+      </AppShell>
     );
   }
 
-  const saveChanges = (updated: Timetable) => {
-    setTimetable(updated);
-    updateTimetable(updated);
-  };
+  const stats = progress(tt);
+  const warnings = planWarnings(tt);
+  const nextExam = upcomingExams(tt, today)[0];
+  const weekKeys = weekDays.map(dayKey);
+  const weekLabel = `${format(weekDays[0], 'd MMM')} to ${format(weekDays[6], 'd MMM yyyy')}`;
+  const thisWeekStart = dayKey(startOfWeek(parseISO(today), { weekStartsOn: 1 }));
 
-  const deleteSession = (sessionId: string) => {
-    const updated = { ...timetable, sessions: timetable.sessions.filter((s) => s.id !== sessionId) };
-    saveChanges(updated);
-    toast.success('Session removed');
-  };
+  const goWeek = (delta: number) => setSelected(dayKey(addDays(parseISO(selected), delta * 7)));
+  const goToday = () => setSelected(today);
 
-  const updateSessionType = (sessionId: string, newType: 'Focus' | 'Review' | 'Practice') => {
-    const updated = {
-      ...timetable,
-      sessions: timetable.sessions.map((s) => s.id === sessionId ? { ...s, sessionType: newType } : s),
-    };
-    saveChanges(updated);
-  };
-
-  const updateSessionDuration = (sessionId: string, newDuration: number) => {
-    const updated = {
-      ...timetable,
-      sessions: timetable.sessions.map((s) => s.id === sessionId ? { ...s, duration: newDuration } : s),
-    };
-    saveChanges(updated);
-  };
-
-  const exportPDF = () => {
-    const doc = new jsPDF();
-    doc.setFontSize(18);
-    doc.text(timetable.title, 14, 20);
-    doc.setFontSize(10);
-    doc.text(`Generated: ${format(new Date(timetable.createdAt), 'PPP')}`, 14, 28);
-    let y = 38;
-    const sortedDates = Object.keys(sessionsByDate).sort();
-    for (const date of sortedDates) {
-      if (y > 270) { doc.addPage(); y = 20; }
-      doc.setFontSize(12);
-      doc.text(format(parseISO(date), 'EEEE, MMM d'), 14, y);
-      y += 6;
-      doc.setFontSize(9);
-      for (const s of sessionsByDate[date]) {
-        if (y > 275) { doc.addPage(); y = 20; }
-        doc.text(`${s.startTime} - ${s.courseName} (${s.duration}h ${s.sessionType})`, 20, y);
-        y += 5;
-        doc.text(`Tip: ${s.tip}`, 24, y);
-        y += 6;
-      }
-      y += 4;
+  const share = async () => {
+    const url = await shareUrl(tt);
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success('Share link copied', { description: 'Anyone with it can open a copy of this plan. It does not update.' });
+    } catch {
+      window.prompt('Copy this share link', url);
     }
-    doc.save(`${timetable.title.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
   };
 
-  const exportICS = () => {
-    let ics = 'BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//StudySync//EN\n';
-    timetable.sessions.forEach((s) => {
-      const startH = parseInt(s.startTime.split(':')[0]);
-      const startM = parseInt(s.startTime.split(':')[1]);
-      const dStr = s.date.replace(/-/g, '');
-      const startStr = `${dStr}T${String(startH).padStart(2, '0')}${String(startM).padStart(2, '0')}00`;
-      const endH = startH + Math.floor(s.duration);
-      const endM = startM + (s.duration % 1) * 60;
-      const endStr = `${dStr}T${String(endH).padStart(2, '0')}${String(endM).padStart(2, '0')}00`;
-      ics += `BEGIN:VEVENT\nDTSTART:${startStr}\nDTEND:${endStr}\nSUMMARY:${s.courseName} (${s.sessionType})\nDESCRIPTION:${s.tip}\nEND:VEVENT\n`;
+  const save = (s: StudySession, edit: SessionEdit) => {
+    apply(tt.id, (t) => {
+      let next = updateSession(t, s.id, { duration: edit.duration, sessionType: edit.sessionType });
+      if (edit.date !== s.date) next = setSessionStatus(moveSession(next, s.id, edit.date), s.id, s.status);
+      return next;
     });
-    ics += 'END:VCALENDAR';
-    const blob = new Blob([ics], { type: 'text/calendar' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'studysync.ics';
-    a.click();
+    setEditing(null);
   };
 
-  const shareLink = () => {
-    navigator.clipboard.writeText(window.location.href);
-    toast.success('Link copied to clipboard!');
-  };
+  const rowActions = { ...actions, onEdit: (_: unknown, s: StudySession) => setEditing(s) };
 
-  const formatDaysRemaining = (examDate: Date) => {
-    const days = differenceInDays(new Date(examDate), new Date());
-    const hours = Math.floor((new Date(examDate).getTime() - new Date().getTime()) % (1000 * 60 * 60 * 24) / (1000 * 60 * 60));
-    if (days <= 0) return 'Today!';
-    return `${days} Days, ${hours} Hours remaining`;
-  };
+  const dayHeading = (key: string) => (
+    <span>
+      {format(parseISO(key), 'EEEE d MMMM')}
+      {key === today && <span className="ml-2 bg-signal px-1.5 py-0.5 text-xs font-bold uppercase text-signal-foreground">Today</span>}
+    </span>
+  );
+
+  const selectedSessions = byDate[selected] ?? [];
+  const selectedExams = examsByDay[selected] ?? [];
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Nav */}
-      <nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md bg-background/80 border-b border-border">
-        <div className="container mx-auto flex items-center justify-between h-16 px-4">
-          <Link to="/" className="flex items-center gap-2 font-bold text-xl">
-            <Logo className="h-7 w-7" />
-            <span>StudySync</span>
+    <AppShell>
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <Link to="/dashboard" className="text-sm font-semibold text-muted-foreground hover:text-foreground">
+            All plans
           </Link>
-          <div className="flex items-center gap-2">
-            <ThemeToggle />
-            <Link to="/dashboard"><Button variant="ghost" size="sm">Dashboard</Button></Link>
-          </div>
+          <h1 className="mt-1 font-display text-4xl font-bold uppercase leading-none tracking-tight md:text-5xl">{tt.title}</h1>
+          {tt.description && <p className="mt-2 max-w-prose text-muted-foreground">{tt.description}</p>}
         </div>
-      </nav>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={share}>
+            <Link2 /> Share link
+          </Button>
+          <Button variant="outline" onClick={() => downloadICS(tt)}>
+            <CalendarPlus /> Add to calendar
+          </Button>
+          <Button variant="outline" onClick={() => exportPDF(tt)}>
+            <FileDown /> PDF
+          </Button>
+        </div>
+      </div>
 
-      <div className="container mx-auto px-4 pt-20 pb-12">
-        {/* Hero Header — Next Exam + Stats */}
-        <div className="rounded-2xl bg-gradient-to-r from-primary/10 via-primary/5 to-transparent border border-border p-6 mb-6">
-          <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6">
-            <div className="flex-1">
-              <p className="text-sm font-medium text-muted-foreground mb-1">Next Exam</p>
-              {nextExam ? (
-                <>
-                  <h1 className="text-3xl lg:text-4xl font-extrabold tracking-tight mb-1">
-                    {nextExam.name}
-                  </h1>
-                  <p className="text-lg font-semibold text-primary mb-2">
-                    {format(new Date(nextExam.examDate!), 'MMM d, yyyy')}
-                  </p>
-                  <p className="text-muted-foreground font-medium">
-                    {formatDaysRemaining(nextExam.examDate!)}
-                  </p>
-                </>
-              ) : (
-                <>
-                  <h1 className="text-3xl lg:text-4xl font-extrabold tracking-tight mb-1">
-                    {timetable.title}
-                  </h1>
-                  <p className="text-muted-foreground">No upcoming exams</p>
-                </>
-              )}
-            </div>
-
-            {/* Right side stats */}
-            <div className="flex flex-col gap-3 min-w-[260px]">
-              {/* Total Study Hours */}
-              <div className="rounded-xl border border-border bg-card p-4">
-                <p className="text-sm font-semibold text-foreground mb-1">Total Study Hours</p>
-                <div className="flex items-baseline gap-1">
-                  <span className="text-2xl font-extrabold text-primary">{weeklyTotalHours}h</span>
-                  <span className="text-sm text-muted-foreground">this week</span>
-                </div>
-                <div className="w-full h-2 rounded-full bg-muted mt-2">
-                  <div
-                    className="h-2 rounded-full bg-primary transition-all"
-                    style={{ width: `${Math.min(100, (weeklyTotalHours / (timetable.preferences.dailyHours * 7)) * 100)}%` }}
-                  />
-                </div>
-              </div>
-
-              {/* Upcoming Deadlines */}
-              {upcomingDeadlines.length > 0 && (
-                <div className="rounded-xl border border-border bg-card p-4">
-                  <p className="text-sm font-semibold text-foreground mb-2">Upcoming Deadlines</p>
-                  <div className="space-y-1">
-                    {upcomingDeadlines.map((c) => (
-                      <div key={c.id} className="flex items-center gap-2 text-sm">
-                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: COURSE_COLORS[c.colorIndex].hex }} />
-                        <span className="text-muted-foreground truncate">{c.name}</span>
-                        <span className="text-xs text-muted-foreground ml-auto">({format(new Date(c.examDate!), 'MMM d')})</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+      <section aria-label="Progress" className="mb-6 grid gap-4 border border-border bg-card p-4 md:grid-cols-[1fr_auto] md:items-center md:p-5">
+        <div>
+          <p className="timeface text-4xl font-bold leading-none">
+            {formatDuration(stats.doneHours)} <span className="text-lg font-medium text-muted-foreground">done of {formatDuration(stats.plannedHours)}</span>
+          </p>
+          <div className="mt-3 h-2 bg-muted" role="img" aria-label={`${Math.round(stats.ratio * 100)} percent done`}>
+            <div className="h-full bg-foreground" style={{ width: `${Math.round(stats.ratio * 100)}%` }} />
+          </div>
+          <p className="tnum mt-1 text-sm text-muted-foreground">
+            {stats.sessionsDone} of {stats.sessions} sessions
+          </p>
+        </div>
+        {nextExam && (
+          <div className="flex items-center gap-3 md:text-right">
+            <RouteChip colorIndex={nextExam.course.colorIndex} label={routeNumber(tt.courses, nextExam.course.id)} />
+            <div>
+              <p className="font-semibold leading-tight">{nextExam.course.name}</p>
+              <p className="text-sm text-muted-foreground">
+                {format(parseISO(nextExam.day), 'EEE d MMM')} ·{' '}
+                {nextExam.daysLeft === 0 ? 'today' : `${nextExam.daysLeft} day${nextExam.daysLeft === 1 ? '' : 's'}`}
+              </p>
             </div>
           </div>
-        </div>
+        )}
+      </section>
 
-        {/* Toolbar */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" onClick={() => setWeekOffset(weekOffset - 1)}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <span className="font-semibold text-lg min-w-[200px] text-center">
-              {format(weekDays[0], 'MMM d')} – {format(weekDays[6], 'MMM d, yyyy')}
-            </span>
-            <Button variant="ghost" size="icon" onClick={() => setWeekOffset(weekOffset + 1)}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <Button
-              variant={editMode ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setEditMode(!editMode)}
-              className="gap-1"
-            >
-              {editMode ? <Check className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
-              {editMode ? 'Done' : 'Edit'}
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setView(view === 'calendar' ? 'list' : 'calendar')} className="gap-1">
-              {view === 'calendar' ? <List className="h-4 w-4" /> : <LayoutGrid className="h-4 w-4" />}
-              {view === 'calendar' ? 'List' : 'Calendar'}
-            </Button>
-            <Button variant="outline" size="sm" onClick={exportPDF} className="gap-1">
-              <Download className="h-4 w-4" /> Export PDF
-            </Button>
-            <Button variant="outline" size="sm" onClick={exportICS} className="gap-1">
-              <CalendarIcon className="h-4 w-4" /> Sync Calendar
-            </Button>
-          </div>
-        </div>
-
-        {/* Calendar View */}
-        {view === 'calendar' && (
+      {warnings.length > 0 && (
+        <div role="note" className="mb-6 flex gap-3 border border-border bg-card p-4">
+          <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-destructive" aria-hidden="true" />
           <div>
-            {/* Day Headers */}
-            <div className="grid grid-cols-7 gap-px bg-border rounded-t-xl overflow-hidden">
-              {weekDays.map((day) => {
-                const isToday = isSameDay(day, new Date());
+            <p className="font-semibold">This plan may not give every exam enough time</p>
+            <ul className="mt-1 list-disc pl-5 text-sm text-muted-foreground">
+              {warnings.map((w) => (
+                <li key={w}>{w}</li>
+              ))}
+            </ul>
+            <p className="mt-1 text-sm text-muted-foreground">Add study hours or choose a later date, then create the plan again.</p>
+          </div>
+        </div>
+      )}
+
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-1">
+          <Button variant="outline" size="icon" aria-label="Previous week" onClick={() => goWeek(-1)}>
+            <ChevronLeft />
+          </Button>
+          <p className="min-w-[11rem] px-2 text-center font-semibold md:min-w-[14rem]">{weekLabel}</p>
+          <Button variant="outline" size="icon" aria-label="Next week" onClick={() => goWeek(1)}>
+            <ChevronRight />
+          </Button>
+          {dayKey(weekStart) !== thisWeekStart && (
+            <Button variant="ghost" size="sm" onClick={goToday}>
+              Today
+            </Button>
+          )}
+        </div>
+        <div className="inline-flex border border-border" role="group" aria-label="View">
+          {(['week', 'agenda'] as const).map((v) => (
+            <Button
+              key={v}
+              variant={view === v ? 'default' : 'ghost'}
+              size="sm"
+              className="rounded-none"
+              aria-pressed={view === v}
+              onClick={() => setView(v)}
+            >
+              {v === 'week' ? 'Week' : 'Agenda'}
+            </Button>
+          ))}
+        </div>
+      </div>
+
+      {view === 'week' && (
+        <>
+          {/* Phone and tablet: week strip, then the chosen day */}
+          <div className="lg:hidden">
+            <div className="grid grid-cols-7 border border-border" role="group" aria-label="Pick a day">
+              {weekDays.map((d) => {
+                const key = dayKey(d);
+                const count = (byDate[key] ?? []).length;
+                const isSel = key === selected;
                 return (
-                  <div key={day.toISOString()} className={`py-3 px-2 text-center font-semibold text-sm ${isToday ? 'bg-primary text-primary-foreground' : 'bg-muted/50 text-foreground'}`}>
-                    {format(day, 'EEE d')}
-                  </div>
+                  <button
+                    key={key}
+                    type="button"
+                    aria-pressed={isSel}
+                    aria-label={format(d, 'EEEE d MMMM')}
+                    onClick={() => setSelected(key)}
+                    className={cn(
+                      'flex min-h-16 flex-col items-center justify-center gap-0.5 border-r border-border py-2 last:border-r-0',
+                      isSel ? 'bg-primary text-primary-foreground' : key === today ? 'bg-signal text-signal-foreground' : 'bg-card',
+                    )}
+                  >
+                    <span className="text-xs font-semibold uppercase">{format(d, 'EEEEE')}</span>
+                    <span className="timeface text-xl font-bold leading-none">{format(d, 'd')}</span>
+                    <span className="text-[10px] leading-none" aria-hidden="true">
+                      {count > 0 ? '●'.repeat(Math.min(count, 3)) : ' '}
+                    </span>
+                  </button>
                 );
               })}
             </div>
+            <h2 className="mb-1 mt-5 font-display text-2xl font-bold uppercase tracking-tight">{dayHeading(selected)}</h2>
+            {selectedExams.map((e) => (
+              <p key={e.course.id} className="mb-2 flex items-center gap-2 border border-border bg-card p-3 font-semibold">
+                <RouteChip colorIndex={e.course.colorIndex} label={routeNumber(tt.courses, e.course.id)} /> Exam: {e.course.name}
+              </p>
+            ))}
+            {selectedSessions.length > 0 ? (
+              <ul className="border-t border-border">
+                {selectedSessions.map((s) => (
+                  <SessionRow key={s.id} tt={tt} s={s} actions={rowActions} />
+                ))}
+              </ul>
+            ) : (
+              <p className="border-t border-border py-4 text-muted-foreground">
+                {tt.preferences.restDays.includes(DAY_NAMES[parseISO(selected).getDay()]) ? 'Rest day.' : 'No sessions this day.'}
+              </p>
+            )}
+          </div>
 
-            {/* Day Columns */}
-            <div className="grid grid-cols-7 gap-px bg-border rounded-b-xl overflow-hidden">
-              {weekDays.map((day) => {
-                const dateStr = format(day, 'yyyy-MM-dd');
-                const sessions = sessionsByDate[dateStr] || [];
-                const exams = examDateMap[dateStr] || [];
-                const isToday = isSameDay(day, new Date());
-                const isRestDay = timetable.preferences.restDays.includes(format(day, 'EEEE'));
-                const totalHours = sessions.reduce((sum, s) => sum + s.duration, 0);
-
-                return (
-                  <div
-                    key={dateStr}
-                    className={`min-h-[280px] p-2 flex flex-col gap-1.5 ${
-                      isToday ? 'bg-primary/5' :
-                      isRestDay && sessions.length === 0 ? 'bg-muted/30' :
-                      'bg-card'
-                    }`}
-                  >
-                    {/* Daily total */}
-                    {totalHours > 0 && (
-                      <div className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground mb-0.5">
-                        <Clock className="h-3 w-3" />
-                        {totalHours}h total
-                      </div>
-                    )}
-                    {isRestDay && sessions.length === 0 && (
-                      <p className="text-[10px] text-muted-foreground italic">Rest day</p>
-                    )}
-
-                    {/* Exam badges */}
-                    {exams.map((exam, i) => (
-                      <div
-                        key={i}
-                        className="text-xs font-bold px-2 py-1.5 rounded-md text-white"
-                        style={{ backgroundColor: COURSE_COLORS[exam.colorIndex].hex }}
-                      >
-                        📝 Exam
-                        <p className="font-normal text-[10px] opacity-90 truncate">{exam.courseName}</p>
-                      </div>
+          {/* Desktop: the week as a departure grid */}
+          <div className="hidden lg:grid lg:grid-cols-7 lg:border lg:border-border">
+            {weekDays.map((d) => {
+              const key = dayKey(d);
+              const list = byDate[key] ?? [];
+              const isRest = tt.preferences.restDays.includes(DAY_NAMES[d.getDay()]);
+              const hours = plannedHours(list);
+              const isToday = isSameDay(d, parseISO(today));
+              return (
+                <section key={key} aria-label={format(d, 'EEEE d MMMM')} className="min-h-[22rem] border-r border-border bg-card last:border-r-0">
+                  <header className={cn('border-b border-border px-2 py-2', isToday ? 'bg-signal text-signal-foreground' : 'bg-secondary')}>
+                    <p className="text-xs font-semibold uppercase">{format(d, 'EEE')}</p>
+                    <p className="flex items-baseline justify-between">
+                      <span className="timeface text-2xl font-bold leading-none">{format(d, 'd')}</span>
+                      {hours > 0 && <span className="tnum text-xs">{formatDuration(hours)}</span>}
+                    </p>
+                  </header>
+                  <div className="space-y-2 p-2">
+                    {(examsByDay[key] ?? []).map((e) => (
+                      <p key={e.course.id} className="flex items-center gap-2 border border-foreground p-2 text-sm font-bold">
+                        <RouteChip colorIndex={e.course.colorIndex} label={routeNumber(tt.courses, e.course.id)} className="h-6 min-w-6 text-sm" />
+                        <span className="min-w-0 truncate">Exam: {e.course.name}</span>
+                      </p>
                     ))}
-
-                    {/* Sessions */}
-                    {sessions.map((s) => {
-                      // Calculate end time
-                      const [sh, sm] = s.startTime.split(':').map(Number);
-                      const endMinutes = sh * 60 + sm + s.duration * 60;
-                      const endH = Math.floor(endMinutes / 60);
-                      const endM = endMinutes % 60;
-                      const endTime = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
-
+                    {list.map((s) => {
+                      const done = s.status === 'done';
+                      const skipped = s.status === 'skipped';
                       return (
-                        <div
+                        <article
                           key={s.id}
-                          className={`text-xs p-2 rounded-md relative group cursor-default transition-shadow hover:shadow-md ${editMode ? 'ring-1 ring-primary/20' : ''}`}
-                          style={{
-                            backgroundColor: COURSE_COLORS[s.colorIndex].hex + '22',
-                            borderLeft: `4px solid ${COURSE_COLORS[s.colorIndex].hex}`,
-                          }}
-                          title={s.tip}
+                          className={cn('border border-border p-2', (done || skipped) && 'text-muted-foreground', done && 'bg-secondary')}
                         >
-                          {editMode && (
-                            <button
-                              onClick={() => deleteSession(s.id)}
-                              className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                            >
-                              <X className="h-3 w-3" />
-                            </button>
-                          )}
-                          <p className="font-semibold truncate" style={{ color: COURSE_COLORS[s.colorIndex].hex }}>
-                            {s.courseName} {s.sessionType}
+                          <div className="flex items-center gap-1.5">
+                            <RouteChip colorIndex={s.colorIndex} label={routeNumber(tt.courses, s.courseId)} className="h-6 min-w-6 text-sm" />
+                            <p className={cn('min-w-0 flex-1 truncate text-sm font-semibold', (done || skipped) && 'line-through')}>{s.courseName}</p>
+                          </div>
+                          <p className="tnum mt-1 text-xs text-muted-foreground">
+                            {s.startTime} to {endTime(s)} · {s.sessionType}
+                            {skipped ? ' · skipped' : ''}
                           </p>
-                          {editMode ? (
-                            <div className="flex items-center gap-1 mt-1">
-                              <Select value={String(s.duration)} onValueChange={(v) => updateSessionDuration(s.id, parseFloat(v))}>
-                                <SelectTrigger className="h-5 text-[10px] w-14 px-1"><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                  {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3].map((d) => (
-                                    <SelectItem key={d} value={String(d)} className="text-xs">{d}h</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <Select value={s.sessionType} onValueChange={(v) => updateSessionType(s.id, v as any)}>
-                                <SelectTrigger className="h-5 text-[10px] w-16 px-1"><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                  {['Focus', 'Review', 'Practice'].map((t) => (
-                                    <SelectItem key={t} value={t} className="text-xs">{t}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                          ) : (
-                            <p className="text-muted-foreground mt-0.5">
-                              {s.startTime} - {endTime} ({s.duration}h) · {s.sessionType}
-                            </p>
-                          )}
-                        </div>
+                          <div className="mt-1 flex items-center gap-1">
+                            <DoneButton tt={tt} s={s} actions={rowActions} size="h-8 w-8" />
+                            <SessionMenu tt={tt} s={s} actions={rowActions} size="h-8 w-8" />
+                          </div>
+                        </article>
                       );
                     })}
+                    {list.length === 0 && (examsByDay[key] ?? []).length === 0 && (
+                      <p className="text-xs italic text-muted-foreground">{isRest ? 'Rest day' : 'Free'}</p>
+                    )}
                   </div>
-                );
-              })}
-            </div>
-
-            {/* Course Legend */}
-            <div className="flex flex-wrap gap-4 mt-4 pt-3 border-t border-border">
-              {timetable.courses.map((c) => (
-                <div key={c.id} className="flex items-center gap-2 text-xs">
-                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COURSE_COLORS[c.colorIndex].hex }} />
-                  <span className="text-muted-foreground font-medium">{c.name}</span>
-                  {c.examDate && (
-                    <span className="text-[10px] text-muted-foreground">
-                      (Exam: {format(new Date(c.examDate), 'MMM d')})
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
+                </section>
+              );
+            })}
           </div>
-        )}
+          <p className="sr-only">{weekKeys.length} days shown</p>
+        </>
+      )}
 
-        {/* List View */}
-        {view === 'list' && (
-          <div className="space-y-6 max-w-2xl">
-            {Object.keys(sessionsByDate).sort().map((date) => (
-              <div key={date}>
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="font-semibold text-sm">{format(parseISO(date), 'EEEE, MMMM d')}</h3>
-                  <span className="text-xs font-medium text-primary">
-                    {sessionsByDate[date].reduce((s, x) => s + x.duration, 0)}h total
-                  </span>
-                </div>
-                <div className="space-y-2">
-                  {sessionsByDate[date].map((s) => (
-                    <div
-                      key={s.id}
-                      className={`rounded-lg border bg-card p-3 flex items-start gap-3 relative group ${editMode ? 'ring-1 ring-primary/20' : ''}`}
-                    >
-                      <div className="w-1 h-full min-h-[40px] rounded-full self-stretch" style={{ backgroundColor: COURSE_COLORS[s.colorIndex].hex }} />
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm">{s.courseName}</p>
-                        {editMode ? (
-                          <div className="flex items-center gap-2 mt-1">
-                            <Select value={String(s.duration)} onValueChange={(v) => updateSessionDuration(s.id, parseFloat(v))}>
-                              <SelectTrigger className="h-7 text-xs w-20"><SelectValue /></SelectTrigger>
-                              <SelectContent>
-                                {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3].map((d) => (
-                                  <SelectItem key={d} value={String(d)} className="text-xs">{d}h</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <Select value={s.sessionType} onValueChange={(v) => updateSessionType(s.id, v as any)}>
-                              <SelectTrigger className="h-7 text-xs w-24"><SelectValue /></SelectTrigger>
-                              <SelectContent>
-                                {['Focus', 'Review', 'Practice'].map((t) => (
-                                  <SelectItem key={t} value={t} className="text-xs">{t}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => deleteSession(s.id)}>
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        ) : (
-                          <>
-                            <p className="text-xs text-muted-foreground">{s.startTime} · {s.duration}h · {s.sessionType}</p>
-                            <p className="text-xs text-muted-foreground mt-1 italic">💡 {s.tip}</p>
-                          </>
-                        )}
-                      </div>
-                    </div>
+      {view === 'agenda' && (
+        <div className="max-w-2xl space-y-6">
+          {Object.keys(byDate)
+            .sort()
+            .map((key) => (
+              <section key={key} aria-label={format(parseISO(key), 'EEEE d MMMM')}>
+                <h2 className="mb-1 flex items-baseline justify-between font-display text-xl font-bold uppercase tracking-tight">
+                  {dayHeading(key)}
+                  <span className="tnum text-sm font-medium normal-case text-muted-foreground">{formatDuration(plannedHours(byDate[key]))}</span>
+                </h2>
+                {(examsByDay[key] ?? []).map((e) => (
+                  <p key={e.course.id} className="mb-1 flex items-center gap-2 border border-border bg-card p-3 font-semibold">
+                    <RouteChip colorIndex={e.course.colorIndex} label={routeNumber(tt.courses, e.course.id)} /> Exam: {e.course.name}
+                  </p>
+                ))}
+                <ul className="border-t border-border">
+                  {byDate[key].map((s) => (
+                    <SessionRow key={s.id} tt={tt} s={s} actions={rowActions} dimmed={key < today} />
                   ))}
-                </div>
-              </div>
+                </ul>
+              </section>
             ))}
-          </div>
-        )}
-      </div>
-    </div>
+          {Object.keys(byDate).length === 0 && <p className="text-muted-foreground">This plan has no sessions.</p>}
+        </div>
+      )}
+
+      <SessionEditDialog session={editing} onClose={() => setEditing(null)} onSave={save} />
+    </AppShell>
   );
 }
